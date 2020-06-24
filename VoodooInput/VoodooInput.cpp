@@ -134,13 +134,18 @@ UInt32 VoodooInput::getLogicalMaxY() {
 }
 
 IOReturn VoodooInput::message(UInt32 type, IOService *provider, void *argument) {
+    IOLog("VoodooInput received %d\n", type);
     if (type == kIOMessageVoodooInputMessage && provider == parentProvider) {
+        IOLog("VoodooInput received kIOMessageVoodooInputMessage\n");
         if (argument && simulator) {
+            IOLog("VoodooInput ok\n");
             simulator->constructReport(*(VoodooInputEvent*)argument);
         }
     }
     else if (type == kIOMessageVoodooInputUpdateDimensionsMessage && provider == parentProvider) {
+        IOLog("VoodooInput received kIOMessageVoodooInputUpdateDimensionsMessage\n");
         if (argument) {
+            IOLog("VoodooInput ok\n");
             const VoodooInputDimensions& dimensions = *(VoodooInputDimensions*)argument;
             logicalMaxX = dimensions.max_x - dimensions.min_x;
             logicalMaxY = dimensions.max_y - dimensions.min_y;

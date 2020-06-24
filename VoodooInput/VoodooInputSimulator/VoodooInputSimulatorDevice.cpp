@@ -19,8 +19,12 @@ OSDefineMetaClassAndStructors(VoodooInputSimulatorDevice, IOHIDDevice);
 const unsigned char report_descriptor[] = {0x05, 0x01, 0x09, 0x02, 0xa1, 0x01, 0x09, 0x01, 0xa1, 0x00, 0x05, 0x09, 0x19, 0x01, 0x29, 0x03, 0x15, 0x00, 0x25, 0x01, 0x85, 0x02, 0x95, 0x03, 0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05, 0x81, 0x01, 0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x81, 0x25, 0x7f, 0x75, 0x08, 0x95, 0x02, 0x81, 0x06, 0x95, 0x04, 0x75, 0x08, 0x81, 0x01, 0xc0, 0xc0, 0x05, 0x0d, 0x09, 0x05, 0xa1, 0x01, 0x06, 0x00, 0xff, 0x09, 0x0c, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x10, 0x85, 0x3f, 0x81, 0x22, 0xc0, 0x06, 0x00, 0xff, 0x09, 0x0c, 0xa1, 0x01, 0x06, 0x00, 0xff, 0x09, 0x0c, 0x15, 0x00, 0x26, 0xff, 0x00, 0x85, 0x44, 0x75, 0x08, 0x96, 0x6b, 0x05, 0x81, 0x00, 0xc0};
 
 void VoodooInputSimulatorDevice::constructReport(const VoodooInputEvent& multitouch_event) {
-    if (!ready_for_reports)
+    if (!ready_for_reports) {
+    
+        IOLog("VoodooInput not ready for reports\n");
         return;
+    }
+    
 
     command_gate->runAction(OSMemberFunctionCast(IOCommandGate::Action, this, &VoodooInputSimulatorDevice::constructReportGated), (void*)&multitouch_event);
 }
@@ -89,27 +93,35 @@ void VoodooInputSimulatorDevice::constructReportGated(const VoodooInputEvent& mu
         if (transducer->type == VoodooInputTransducerType::STYLUS) {
             continue;
         }
+        
+        IOLog("VoodooInput: processing transdecer %d. It is valid non stylus\n", i);
 
         // in case the obtained id is greater than 14, usually 0~4 for common devices.
         UInt16 touch_id = transducer->secondaryId % 15;
         if (!transducer->isTransducerActive) {
             touch_state[touch_id] = input_report->Button ? 0 : 2;
+            IOLog("VoodooInput: non active, touch state is %d\n", touch_state[touch_id]);
         } else {
             input_active = true;
         }
+        IOLog("VoodooInput: input_active=%d\n", input_active);
 
         MAGIC_TRACKPAD_INPUT_REPORT_FINGER& finger_data = input_report->FINGERS[i];
 
         IOFixed scaled_x = ((transducer->currentCoordinates.x * 1.0f) / engine->getLogicalMaxX()) * MT2_MAX_X;
         IOFixed scaled_y = ((transducer->currentCoordinates.y * 1.0f) / engine->getLogicalMaxY()) * MT2_MAX_Y;
-
+        
+        IOLog("VoodooInput: scaled_x: %d, scaled_y: %d\n", scaled_x, scaled_y);
+        
         if (scaled_x < 1 && scaled_y >= MT2_MAX_Y) {
             is_error_input_active = true;
+            IOLog("VoodooInput: is_error_input_active true\n");
         }
         
         IOFixed scaled_old_x = ((transducer->previousCoordinates.x * 1.0f) / engine->getLogicalMaxX()) * MT2_MAX_X;
         IOFixed scaled_old_y = ((transducer->previousCoordinates.y * 1.0f) / engine->getLogicalMaxY()) * MT2_MAX_Y;
-
+        
+        IOLog("VoodooInput: scaled_old_x: %d, scaled_old_y: %d\n", scaled_old_x, scaled_old_y);
         
         if (transform) {
             if (transform & kIOFBSwapAxes) {
@@ -128,6 +140,7 @@ void VoodooInputSimulatorDevice::constructReportGated(const VoodooInputEvent& mu
         UInt8 angle_bits = 0;
         IOFixed x_diff = scaled_x - scaled_old_x;
         IOFixed y_diff = (scaled_y - scaled_old_y) * -1;
+        IOLog("VoodooInput: x_diff: %d, y_diff: %d\n", x_diff, y_diff);
         if (x_diff > 0) {
             if (y_diff <= -5.027f * x_diff) {
                 // if: y_diff/x_diff <= tan(pi/2 + pi/8 * 1/2) < 0
@@ -176,26 +189,32 @@ void VoodooInputSimulatorDevice::constructReportGated(const VoodooInputEvent& mu
         
         if (touch_state[touch_id] == 4) {
             finger_data.State = 0x4;
+            IOLog("VoodooInput: finger_data touch state 4\n");
         } else {
             finger_data.State = ++touch_state[touch_id];
+            IOLog("VoodooInput: finger_data touch state++ \n");
         }
 
         finger_data.Finger = transducer->fingerType;
+        IOLog("VoodooInput: Finger %d \n", finger_data.Finger);
 
         if (transducer->supportsPressure) {
             finger_data.Pressure = transducer->currentCoordinates.pressure;
             finger_data.Size = transducer->currentCoordinates.width;
             finger_data.Touch_Major = transducer->currentCoordinates.width;
             finger_data.Touch_Minor = transducer->currentCoordinates.width;
+            IOLog("VoodooInput: reports support preasure: %d %d %d %d\n", finger_data.Pressure, finger_data.Size, finger_data.Touch_Major, finger_data.Touch_Minor);
         } else {
             finger_data.Pressure = 5;
             finger_data.Size = 10;
             finger_data.Touch_Major = 20;
             finger_data.Touch_Minor = 20;
+            IOLog("VoodooInput: doesnt support preasure. defaults: %d %d %d %d\n", finger_data.Pressure, finger_data.Size, finger_data.Touch_Major, finger_data.Touch_Minor);
         }
         
         if (input_report->Button) {
             finger_data.Pressure = 120;
+            IOLog("VoodooInput: Preasure 120, cuz button \n");
         }
         
         if (!transducer->isTransducerActive && !input_report->Button) {
@@ -204,6 +223,7 @@ void VoodooInputSimulatorDevice::constructReportGated(const VoodooInputEvent& mu
             finger_data.Pressure = 0x0;
             finger_data.Touch_Minor = 0;
             finger_data.Touch_Major = 0;
+            IOLog("VoodooInput: non active, non button? \n");
         }
 
         finger_data.X = (SInt16)(scaled_x - (MT2_MAX_X / 2));
@@ -222,8 +242,13 @@ void VoodooInputSimulatorDevice::constructReportGated(const VoodooInputEvent& mu
         sizeof(MAGIC_TRACKPAD_INPUT_REPORT_FINGER) * multitouch_event.contact_count;
 
     if (!is_error_input_active) {
+        IOLog("VoodooInput: sending \n");
         input_report_buffer->setLength(total_report_len);
         sendReport();
+    }
+    else
+    {
+        IOLog("VoodooInput: was error \n");
     }
     
     if (!input_active) {
@@ -256,6 +281,7 @@ void VoodooInputSimulatorDevice::constructReportGated(const VoodooInputEvent& mu
         input_report->timestamp_buffer[2] = (milli_timestamp >> 0xd) & 0xFF;
         input_report_buffer->setLength(sizeof(MAGIC_TRACKPAD_INPUT_REPORT));
         sendReport();
+        IOLog("VoodooInput: non active, so sending some generic? \n");
     }
 
     memset(input_report, 0, total_report_len);
